@@ -2,14 +2,45 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="600"> <!-- Refreshes every 10 mins -->
-    <title>Halt Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="600"> <!-- Auto-refresh every 10 minutes -->
+    <title>NYSE HALT MONITOR</title>
     <style>
-        body { font-family: "Courier New", monospace; font-size: 11px; background: #000; color: #0f0; margin: 0; }
-        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-        th, td { border: 1px solid #333; padding: 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        th { background: #111; color: #aaa; text-align: left; font-weight: normal; }
-        .no-resume { background-color: #ffff00 !important; color: #000; font-weight: bold; }
+        /* Modern High-Density Trading UI */
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
+            font-size: 14px; 
+            font-weight: 700; /* Bold text for high visibility */
+            background: #000; 
+            color: #fff; 
+            margin: 0; 
+            overflow-x: hidden;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            table-layout: fixed; 
+            letter-spacing: -0.3px; /* Keeps bold text compact */
+        }
+        th, td { 
+            border: 1px solid #333; 
+            padding: 4px 6px; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            white-space: nowrap; 
+        }
+        th { 
+            background: #1a1a1a; 
+            color: #00ff00; /* Green headers for clear separation */
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        /* Highlight rows with no Resume Time in Yellow */
+        .no-resume { 
+            background-color: #ffff00 !important; 
+            color: #000 !important; 
+        }
         tr:hover { background: #222; }
     </style>
 </head>
@@ -17,48 +48,57 @@
     <table id="haltTable">
         <thead>
             <tr>
-                <th style="width: 20%;">Sym</th>
-                <th style="width: 40%;">Reason</th>
+                <th style="width: 18%;">Sym</th>
+                <th style="width: 42%;">Reason</th>
                 <th style="width: 20%;">HaltT</th>
                 <th style="width: 20%;">ResumeT</th>
             </tr>
         </thead>
         <tbody id="haltBody">
-            <!-- Data injected here -->
+            <!-- Data populated by JavaScript -->
         </tbody>
     </table>
 
     <script>
-        async function fetchHalts() {
+        async function fetchHaltData() {
+            const tbody = document.getElementById('haltBody');
             try {
-                // NYSE public API endpoint for current day halts
+                // Fetching from NYSE's official public data endpoint
                 const response = await fetch('https://www.nyse.com/api/trade-halts/current');
                 const data = await response.json();
-                const tbody = document.getElementById('haltBody');
-                tbody.innerHTML = '';
+                
+                tbody.innerHTML = ''; // Clear existing rows
 
                 data.forEach(item => {
                     const tr = document.createElement('tr');
                     
-                    // Logic: Highlight if Resume Time is empty or null
-                    const resumeTime = item.resumeTime || '';
-                    if (!resumeTime || resumeTime.trim() === '') {
+                    // Extract relevant fields
+                    const symbol = item.symbol || '';
+                    const reason = item.reason || '';
+                    const haltTime = item.haltTime || '';
+                    const resumeTime = item.resumeTime ? item.resumeTime.trim() : '';
+
+                    // Logic: If Resume Time is empty, highlight row yellow
+                    if (resumeTime === '') {
                         tr.className = 'no-resume';
                     }
 
                     tr.innerHTML = `
-                        <td>${item.symbol}</td>
-                        <td>${item.reason}</td>
-                        <td>${item.haltTime}</td>
+                        <td>${symbol}</td>
+                        <td>${reason}</td>
+                        <td>${haltTime}</td>
                         <td>${resumeTime}</td>
                     `;
                     tbody.appendChild(tr);
                 });
-            } catch (e) {
-                console.error("Data fetch failed:", e);
+            } catch (error) {
+                console.error('Fetch Error:', error);
+                tbody.innerHTML = '<tr><td colspan="4" style="color:red">ERROR LOADING DATA...</td></tr>';
             }
         }
-        fetchHalts();
+
+        // Initial load
+        fetchHaltData();
     </script>
 </body>
 </html>
