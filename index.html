@@ -2,45 +2,21 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="600"> <!-- Auto-refresh every 10 minutes -->
+    <meta http-equiv="refresh" content="600">
     <title>NYSE HALT MONITOR</title>
     <style>
-        /* Modern High-Density Trading UI */
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
             font-size: 14px; 
-            font-weight: 700; /* Bold text for high visibility */
+            font-weight: 700; 
             background: #000; 
             color: #fff; 
             margin: 0; 
-            overflow-x: hidden;
         }
-        table { 
-            width: 100%; 
-            border-collapse: collapse; 
-            table-layout: fixed; 
-            letter-spacing: -0.3px; /* Keeps bold text compact */
-        }
-        th, td { 
-            border: 1px solid #333; 
-            padding: 4px 6px; 
-            overflow: hidden; 
-            text-overflow: ellipsis; 
-            white-space: nowrap; 
-        }
-        th { 
-            background: #1a1a1a; 
-            color: #00ff00; /* Green headers for clear separation */
-            text-align: left;
-            font-size: 12px;
-            text-transform: uppercase;
-        }
-        /* Highlight rows with no Resume Time in Yellow */
-        .no-resume { 
-            background-color: #ffff00 !important; 
-            color: #000 !important; 
-        }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; letter-spacing: -0.3px; }
+        th, td { border: 1px solid #333; padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        th { background: #1a1a1a; color: #00ff00; text-align: left; font-size: 11px; text-transform: uppercase; }
+        .no-resume { background-color: #ffff00 !important; color: #000 !important; }
         tr:hover { background: #222; }
     </style>
 </head>
@@ -54,32 +30,32 @@
                 <th style="width: 20%;">ResumeT</th>
             </tr>
         </thead>
-        <tbody id="haltBody">
-            <!-- Data populated by JavaScript -->
-        </tbody>
+        <tbody id="haltBody"></tbody>
     </table>
 
     <script>
         async function fetchHaltData() {
             const tbody = document.getElementById('haltBody');
+            // Using a CORS proxy to bypass NYSE security restrictions
+            const proxy = 'https://corsproxy.io/?';
+            const target = encodeURIComponent('https://www.nyse.com/api/trade-halts/current');
+            
             try {
-                // Fetching from NYSE's official public data endpoint
-                const response = await fetch('https://www.nyse.com/api/trade-halts/current');
+                const response = await fetch(proxy + target);
                 const data = await response.json();
                 
-                tbody.innerHTML = ''; // Clear existing rows
+                tbody.innerHTML = '';
+                // The NYSE API returns an array or an object containing 'halts'
+                const halts = Array.isArray(data) ? data : (data.halts || []);
 
-                data.forEach(item => {
+                halts.forEach(item => {
                     const tr = document.createElement('tr');
-                    
-                    // Extract relevant fields
-                    const symbol = item.symbol || '';
-                    const reason = item.reason || '';
-                    const haltTime = item.haltTime || '';
+                    const symbol = item.symbol || '---';
+                    const reason = item.reason || 'N/A';
+                    const haltTime = item.haltTime || '--:--:--';
                     const resumeTime = item.resumeTime ? item.resumeTime.trim() : '';
 
-                    // Logic: If Resume Time is empty, highlight row yellow
-                    if (resumeTime === '') {
+                    if (!resumeTime) {
                         tr.className = 'no-resume';
                     }
 
@@ -93,11 +69,9 @@
                 });
             } catch (error) {
                 console.error('Fetch Error:', error);
-                tbody.innerHTML = '<tr><td colspan="4" style="color:red">ERROR LOADING DATA...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="color:red">CONNECTION ERROR. RETRYING IN 10 MINS...</td></tr>';
             }
         }
-
-        // Initial load
         fetchHaltData();
     </script>
 </body>
