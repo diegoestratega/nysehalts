@@ -17,8 +17,7 @@
         table { 
             width: 100%; 
             border-collapse: collapse; 
-            /* table-layout: auto allows columns to be as thin as the text */
-            table-layout: auto; 
+            table-layout: auto; /* Shrink-wraps columns to text width */
             letter-spacing: -0.5px; 
         }
         th, td { 
@@ -34,12 +33,12 @@
             font-size: 11px; 
             text-transform: uppercase; 
         }
-        /* Reasons column can expand, others stay tight */
+        /* Reason column takes remaining space, others stay thin */
         .col-reason { width: 100%; white-space: normal; }
         
-        /* High-Contrast Amber/Orange Highlight */
+        /* Muted Goldenrod Yellow Highlight (Less bright than neon) */
         .no-resume { 
-            background-color: #ff9100 !important; 
+            background-color: #FFD700 !important; 
             color: #000 !important; 
         }
         #status { padding: 6px; font-size: 10px; color: #666; background: #080808; }
@@ -80,6 +79,7 @@
                     const tr = document.createElement('tr');
                     const resumeT = item.formatedResumptionTime ? item.formatedResumptionTime.trim() : '';
 
+                    // Apply muted yellow highlight if no resume time
                     if (!resumeT || resumeT === "" || resumeT === "null") {
                         tr.className = 'no-resume';
                     }
