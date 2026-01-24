@@ -5,6 +5,7 @@
     <meta http-equiv="refresh" content="600">
     <title>NYSE HALT MONITOR</title>
     <style>
+        /* Bold, high-density professional UI */
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
             font-size: 14px; 
@@ -16,11 +17,17 @@
         table { width: 100%; border-collapse: collapse; table-layout: fixed; letter-spacing: -0.3px; }
         th, td { border: 1px solid #333; padding: 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         th { background: #1a1a1a; color: #00ff00; text-align: left; font-size: 11px; text-transform: uppercase; }
-        .no-resume { background-color: #ffff00 !important; color: #000 !important; }
-        tr:hover { background: #222; }
+        
+        /* Highlight row yellow if Resume Time is null or empty */
+        .no-resume { 
+            background-color: #ffff00 !important; 
+            color: #000 !important; 
+        }
+        #status { padding: 8px; font-size: 11px; color: #888; border-bottom: 1px solid #222; }
     </style>
 </head>
 <body>
+    <div id="status">CONNECTING TO NYSE FEED...</div>
     <table id="haltTable">
         <thead>
             <tr>
@@ -36,42 +43,52 @@
     <script>
         async function fetchHaltData() {
             const tbody = document.getElementById('haltBody');
-            // Using a CORS proxy to bypass NYSE security restrictions
-            const proxy = 'https://corsproxy.io/?';
-            const target = encodeURIComponent('https://www.nyse.com/api/trade-halts/current');
+            const status = document.getElementById('status');
+            const url = 'https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current';
             
             try {
-                const response = await fetch(proxy + target);
+                const response = await fetch(url);
                 const data = await response.json();
                 
-                tbody.innerHTML = '';
-                // The NYSE API returns an array or an object containing 'halts'
-                const halts = Array.isArray(data) ? data : (data.halts || []);
+                // Navigate the specific JSON structure provided
+                const halts = data.results && data.results.tradeHalts ? data.results.tradeHalts : [];
+                
+                if (halts.length === 0) {
+                    status.innerText = "NO ACTIVE HALTS REPORTED";
+                    return;
+                }
 
+                tbody.innerHTML = '';
                 halts.forEach(item => {
                     const tr = document.createElement('tr');
-                    const symbol = item.symbol || '---';
+                    
+                    const sym = item.symbol || '---';
                     const reason = item.reason || 'N/A';
-                    const haltTime = item.haltTime || '--:--:--';
-                    const resumeTime = item.resumeTime ? item.resumeTime.trim() : '';
+                    const haltT = item.formatedHaltTime || '--:--';
+                    const resumeT = item.formatedResumptionTime ? item.formatedResumptionTime.trim() : '';
 
-                    if (!resumeTime) {
+                    // Logic: Highlight yellow if Resume Time is missing
+                    if (!resumeT || resumeT === "" || resumeT === "null") {
                         tr.className = 'no-resume';
                     }
 
                     tr.innerHTML = `
-                        <td>${symbol}</td>
+                        <td>${sym}</td>
                         <td>${reason}</td>
-                        <td>${haltTime}</td>
-                        <td>${resumeTime}</td>
+                        <td>${haltT}</td>
+                        <td>${resumeT}</td>
                     `;
                     tbody.appendChild(tr);
                 });
+                
+                status.innerText = "UPDATED: " + (data.results.lastUpdatedTime || new Date().toLocaleTimeString());
             } catch (error) {
-                console.error('Fetch Error:', error);
-                tbody.innerHTML = '<tr><td colspan="4" style="color:red">CONNECTION ERROR. RETRYING IN 10 MINS...</td></tr>';
+                console.error(error);
+                status.innerText = "FEED ERROR - RETRYING IN 10M";
+                status.style.color = "red";
             }
         }
+
         fetchHaltData();
     </script>
 </body>
