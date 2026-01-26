@@ -5,13 +5,43 @@
     <meta http-equiv="refresh" content="61">
     <title>NYSE HALT MONITOR</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; font-weight: 700; background: #000; color: #fff; margin: 0; }
-        table { width: 100%; border-collapse: collapse; table-layout: auto; letter-spacing: -0.5px; }
-        th, td { border: 1px solid #333; padding: 2px 6px; white-space: nowrap; overflow: hidden; }
-        th { background: #1a1a1a; color: #00ff00; text-align: left; font-size: 11px; text-transform: uppercase; }
-        .col-reason { width: 100%; white-space: normal; }
-        .no-resume { background-color: #FFD700 !important; color: #000 !important; }
-        #status { padding: 6px; font-size: 10px; color: #666; background: #080808; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            background: #000;
+            color: #fff;
+            margin: 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+            letter-spacing: -0.5px;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 2px 6px;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        th {
+            background: #1a1a1a;
+            color: #00ff00;
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .no-resume {
+            background-color: #FFD700 !important;
+            color: #000 !important;
+        }
+        #status {
+            padding: 6px;
+            font-size: 10px;
+            color: #666;
+            background: #080808;
+        }
     </style>
 </head>
 <body>
@@ -20,7 +50,6 @@
         <thead>
             <tr>
                 <th>Sym</th>
-                <th class="col-reason">Reason</th>
                 <th>Halted</th>
                 <th>Resume</th>
             </tr>
@@ -32,24 +61,29 @@
         async function fetchHaltData() {
             const tbody = document.getElementById('haltBody');
             const status = document.getElementById('status');
-            
-            // CACHE BUSTER: Appending a timestamp (?_=[ms]) ensures the browser fetches fresh data every time
+
             const timestamp = new Date().getTime();
             const url = `https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
-            
+
             try {
-                // cache: "no-store" tells the browser not to save or use a cached version
                 const response = await fetch(url, { cache: "no-store" });
                 const data = await response.json();
                 const halts = data.results && data.results.tradeHalts ? data.results.tradeHalts : [];
-                
-                if (halts.length === 0) {
-                    status.innerText = "NO ACTIVE HALTS - " + new Date().toLocaleTimeString();
+
+                // Seasoned-filter: keep only LULD-related reasons, do not display the reason column
+                const luldHalts = halts.filter(h => {
+                    const r = (h.reason || "").toLowerCase();
+                    return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
+                });
+
+                if (luldHalts.length === 0) {
+                    tbody.innerHTML = '';
+                    status.innerText = "NO ACTIVE LULD PAUSES - " + new Date().toLocaleTimeString();
                     return;
                 }
 
                 tbody.innerHTML = '';
-                halts.forEach(item => {
+                luldHalts.forEach(item => {
                     const tr = document.createElement('tr');
                     const resumeT = item.formatedResumptionTime ? item.formatedResumptionTime.trim() : '';
 
@@ -59,17 +93,18 @@
 
                     tr.innerHTML = `
                         <td>${item.symbol || '---'}</td>
-                        <td class="col-reason">${item.reason || 'N/A'}</td>
                         <td>${item.formatedHaltTime || '--:--'}</td>
                         <td>${resumeT}</td>
                     `;
                     tbody.appendChild(tr);
                 });
-                status.innerText = "LAST SYNC: " + new Date().toLocaleTimeString();
+
+                status.innerText = `LAST SYNC: ${new Date().toLocaleTimeString()} | LULD: ${luldHalts.length}`;
             } catch (error) {
                 status.innerText = "OFFLINE - RETRYING";
             }
         }
+
         fetchHaltData();
     </script>
 </body>
