@@ -1,82 +1,75 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>NYSE HALT MONITOR (FIXED)</title>
-    <style>
-        body { font-family: monospace; background: #000; color: #0f0; padding: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #333; padding: 5px; text-align: left; }
-        th { color: #fff; border-bottom: 2px solid #555; }
-        .error { color: #f00; }
-        .meta { color: #888; font-size: 12px; margin-bottom: 10px; }
-    </style>
-</head>
-<body>
-    <div id="status" class="meta">INITIALIZING...</div>
-    <table id="haltTable">
-        <thead>
-            <tr><th>SYMBOL</th><th>TIME (ET)</th><th>RESUME</th><th>REASON</th></tr>
-        </thead>
-        <tbody id="haltBody"></tbody>
-    </table>
-
 <script>
 async function fetchHaltData() {
     const tbody = document.getElementById('haltBody');
     const status = document.getElementById('status');
     
-    // 1. Properly construct URL with encoding
+    // 1. Setup URL
     const timestamp = Date.now();
     const targetUrl = `https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
-    // Encode the target URL component to safely pass the second '?'
     const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
 
-    status.innerText = "FETCHING: " + targetUrl;
+    status.innerHTML = "Requesting data...";
 
     try {
         const response = await fetch(proxyUrl);
-        
-        // 2. DEBUGGING: Log the raw structure to console so you can see it
         const data = await response.json();
-        console.log("API RESPONSE:", data); 
-
-        // 3. ROBUST EXTRACTION: Handle different possible structures
+        
+        // 2. AUTO-DETECT: Find the array containing data
         let halts = [];
+        
         if (Array.isArray(data)) {
             halts = data;
-        } else if (data.tradeHalts) {
-            halts = data.tradeHalts;
-        } else if (data.results) {
-            halts = Array.isArray(data.results) ? data.results : (data.results.tradeHalts || []);
+        } else {
+            // Recursive search for the first array in the object
+            const findArray = (obj) => {
+                for (let key in obj) {
+                    if (Array.isArray(obj[key]) && obj[key].length > 0) return obj[key];
+                    if (typeof obj[key] === 'object' && obj[key] !== null) {
+                        const result = findArray(obj[key]);
+                        if (result) return result;
+                    }
+                }
+                return [];
+            };
+            halts = findArray(data);
         }
 
-        if (!halts.length) {
-            throw new Error("Structure mismatch: Check Console for 'API RESPONSE'");
+        // 3. DEBUG: Show exactly what we found
+        console.log("Found Data:", halts);
+        
+        // Handle "No Active Halts" gracefully instead of throwing error
+        if (!halts || halts.length === 0) {
+            status.innerText = "CONNECTED: No active halts reported by API.";
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#ffff00">NO ACTIVE HALTS FOUND</td></tr>';
+            return;
         }
 
-        // 4. FILTERING: Case-insensitive and safe property access
-        const luldHalts = halts.filter(h => {
-            // Check all possible reason field names (API keys often differ from display)
-            const reason = (h.reason || h.Reason || h.message || "").toLowerCase();
+        // 4. SMART MAPPING: Map dynamic keys to our table
+        // (Finds keys regardless of capitalization: symbol/Symbol, haltTime/HaltTime)
+        const getVal = (item, keywords) => {
+            const key = Object.keys(item).find(k => keywords.some(kw => k.toLowerCase().includes(kw)));
+            return key ? item[key] : null;
+        };
+
+        const luldHalts = halts.filter(item => {
+            const reason = (getVal(item, ['reason', 'message']) || "").toLowerCase();
             return reason.includes("luld") || reason.includes("limit up");
         });
 
-        status.innerText = `UPDATED: ${new Date().toLocaleTimeString()} | RAW: ${halts.length} | LULD: ${luldHalts.length}`;
+        status.innerText = `UPDATED: ${new Date().toLocaleTimeString()} | TOTAL: ${halts.length} | LULD: ${luldHalts.length}`;
         tbody.innerHTML = '';
 
         if (luldHalts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666">NO ACTIVE LULD HALTS</td></tr>';
-            return;
+             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666">NO ACTIVE LULD HALTS</td></tr>';
+             return;
         }
 
         luldHalts.forEach(item => {
             const tr = document.createElement('tr');
-            // Handle different possible key capitalizations (symbol vs Symbol)
-            const sym = item.symbol || item.Symbol || "???";
-            const time = item.haltTime || item.HaltTime || item.formatedHaltTime || "--:--";
-            const resume = item.resumeTime || item.ResumeTime || item.formatedResumptionTime || "PENDING";
-            const reason = item.reason || item.Reason || "";
+            const sym = getVal(item, ['symbol', 'sym']) || "---";
+            const time = getVal(item, ['halttime', 'time']) || "--:--";
+            const resume = getVal(item, ['resumetime', 'resume']) || "PENDING";
+            const reason = getVal(item, ['reason', 'message']) || "";
 
             tr.innerHTML = `<td>${sym}</td><td>${time}</td><td>${resume}</td><td>${reason}</td>`;
             tbody.appendChild(tr);
@@ -84,13 +77,12 @@ async function fetchHaltData() {
 
     } catch (error) {
         console.error(error);
-        status.innerHTML = `<span class="error">ERROR: ${error.message}</span>`;
+        status.innerHTML = `<span style="color:red">ERROR: ${error.message}</span>`;
+        // Print the raw JSON to console so you can inspect it
+        console.log("Inspect this object to see structure:", error);
     }
 }
 
-// Auto-refresh every 60s
 fetchHaltData();
 setInterval(fetchHaltData, 60000);
 </script>
-</body>
-</html>
