@@ -2,111 +2,95 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="refresh" content="61">
-    <title>NYSE HALT MONITOR</title>
+    <title>NYSE HALT MONITOR (FIXED)</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-            font-size: 14px;
-            font-weight: 700;
-            background: #000;
-            color: #fff;
-            margin: 0;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            table-layout: auto;
-            letter-spacing: -0.5px;
-        }
-        th, td {
-            border: 1px solid #333;
-            padding: 2px 6px;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-        th {
-            background: #1a1a1a;
-            color: #00ff00;
-            text-align: left;
-            font-size: 11px;
-            text-transform: uppercase;
-        }
-        .no-resume {
-            background-color: #FFD700 !important;
-            color: #000 !important;
-        }
-        #status {
-            padding: 6px;
-            font-size: 10px;
-            color: #666;
-            background: #080808;
-        }
+        body { font-family: monospace; background: #000; color: #0f0; padding: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #333; padding: 5px; text-align: left; }
+        th { color: #fff; border-bottom: 2px solid #555; }
+        .error { color: #f00; }
+        .meta { color: #888; font-size: 12px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
-    <div id="status">CONNECTING...</div>
+    <div id="status" class="meta">INITIALIZING...</div>
     <table id="haltTable">
         <thead>
-            <tr>
-                <th>Sym</th>
-                <th>Halted</th>
-                <th>Resume</th>
-            </tr>
+            <tr><th>SYMBOL</th><th>TIME (ET)</th><th>RESUME</th><th>REASON</th></tr>
         </thead>
         <tbody id="haltBody"></tbody>
     </table>
 
-    <script>
-        async function fetchHaltData() {
-            const tbody = document.getElementById('haltBody');
-            const status = document.getElementById('status');
+<script>
+async function fetchHaltData() {
+    const tbody = document.getElementById('haltBody');
+    const status = document.getElementById('status');
+    
+    // 1. Properly construct URL with encoding
+    const timestamp = Date.now();
+    const targetUrl = `https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
+    // Encode the target URL component to safely pass the second '?'
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
 
-            const timestamp = new Date().getTime();
-            const url = `https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current`;
-            //            const url = `https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
+    status.innerText = "FETCHING: " + targetUrl;
 
-            try {
-                const response = await fetch(url, { cache: "no-store" });
-                const data = await response.json();
-                const halts = data.results && data.results.tradeHalts ? data.results.tradeHalts : [];
+    try {
+        const response = await fetch(proxyUrl);
+        
+        // 2. DEBUGGING: Log the raw structure to console so you can see it
+        const data = await response.json();
+        console.log("API RESPONSE:", data); 
 
-                // Seasoned-filter: keep only LULD-related reasons, do not display the reason column
-                const luldHalts = halts.filter(h => {
-                    const r = (h.reason || "").toLowerCase();
-                    return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
-                });
-
-                if (luldHalts.length === 0) {
-                    tbody.innerHTML = '';
-                    status.innerText = "NO ACTIVE LULD PAUSES - " + new Date().toLocaleTimeString();
-                    return;
-                }
-
-                tbody.innerHTML = '';
-                luldHalts.forEach(item => {
-                    const tr = document.createElement('tr');
-                    const resumeT = item.formatedResumptionTime ? item.formatedResumptionTime.trim() : '';
-
-                    if (!resumeT || resumeT === "" || resumeT === "null") {
-                        tr.className = 'no-resume';
-                    }
-
-                    tr.innerHTML = `
-                        <td>${item.symbol || '---'}</td>
-                        <td>${item.formatedHaltTime || '--:--'}</td>
-                        <td>${resumeT}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-
-                status.innerText = `LAST SYNC: ${new Date().toLocaleTimeString()} | LULD: ${luldHalts.length}`;
-            } catch (error) {
-                status.innerText = "OFFLINE - RETRYING";
-            }
+        // 3. ROBUST EXTRACTION: Handle different possible structures
+        let halts = [];
+        if (Array.isArray(data)) {
+            halts = data;
+        } else if (data.tradeHalts) {
+            halts = data.tradeHalts;
+        } else if (data.results) {
+            halts = Array.isArray(data.results) ? data.results : (data.results.tradeHalts || []);
         }
 
-        fetchHaltData();
-    </script>
+        if (!halts.length) {
+            throw new Error("Structure mismatch: Check Console for 'API RESPONSE'");
+        }
+
+        // 4. FILTERING: Case-insensitive and safe property access
+        const luldHalts = halts.filter(h => {
+            // Check all possible reason field names (API keys often differ from display)
+            const reason = (h.reason || h.Reason || h.message || "").toLowerCase();
+            return reason.includes("luld") || reason.includes("limit up");
+        });
+
+        status.innerText = `UPDATED: ${new Date().toLocaleTimeString()} | RAW: ${halts.length} | LULD: ${luldHalts.length}`;
+        tbody.innerHTML = '';
+
+        if (luldHalts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666">NO ACTIVE LULD HALTS</td></tr>';
+            return;
+        }
+
+        luldHalts.forEach(item => {
+            const tr = document.createElement('tr');
+            // Handle different possible key capitalizations (symbol vs Symbol)
+            const sym = item.symbol || item.Symbol || "???";
+            const time = item.haltTime || item.HaltTime || item.formatedHaltTime || "--:--";
+            const resume = item.resumeTime || item.ResumeTime || item.formatedResumptionTime || "PENDING";
+            const reason = item.reason || item.Reason || "";
+
+            tr.innerHTML = `<td>${sym}</td><td>${time}</td><td>${resume}</td><td>${reason}</td>`;
+            tbody.appendChild(tr);
+        });
+
+    } catch (error) {
+        console.error(error);
+        status.innerHTML = `<span class="error">ERROR: ${error.message}</span>`;
+    }
+}
+
+// Auto-refresh every 60s
+fetchHaltData();
+setInterval(fetchHaltData, 60000);
+</script>
 </body>
 </html>
