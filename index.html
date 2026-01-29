@@ -66,4 +66,124 @@
   const MAX_ROWS = 200;            // safety cap
   // ========================
 
-  function isLuldReason(reaso
+  function isLuldReason(reason) {
+    const r = (reason || "").toLowerCase();
+    return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
+  }
+
+  // Robust CSV line parser (handles quoted commas)
+  function parseCsvLine(line) {
+    const out = [];
+    let cur = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+
+      if (ch === '"') {
+        // Handle escaped quote ("")
+        if (inQuotes && line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+
+      if (ch === ',' && !inQuotes) {
+        out.push(cur);
+        cur = "";
+        continue;
+      }
+
+      cur += ch;
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  }
+
+  function csvToObjects(csvText) {
+    const text = (csvText || "").trim();
+    if (!text) return [];
+
+    const lines = text.split(/\r?\n/).filter(Boolean);
+    if (lines.length < 2) return [];
+
+    const headers = parseCsvLine(lines[0]);
+    const rows = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsvLine(lines[i]);
+      const obj = {};
+      for (let j = 0; j < headers.length; j++) {
+        obj[headers[j]] = cols[j] ?? "";
+      }
+      rows.push(obj);
+    }
+    return rows;
+  }
+
+  async function fetchHaltData() {
+    const tbody = document.getElementById("haltBody");
+    const status = document.getElementById("status");
+
+    // NYSE halts CSV
+    const nyseCsvUrl = `https://www.nyse.com/api/trade-halts/current/download?_=${Date.now()}`;
+
+    // AllOrigins: returns JSON { contents: "..." } [page:0]
+    const allOriginsUrl =
+      `https://api.allorigins.win/get?url=${encodeURIComponent(nyseCsvUrl)}`;
+
+    try {
+      status.innerText = "FETCHING...";
+
+      const resp = await fetch(allOriginsUrl, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`AllOrigins HTTP ${resp.status}`);
+
+      const wrapper = await resp.json();
+      const csvText = wrapper && typeof wrapper.contents === "string" ? wrapper.contents : "";
+
+      const rows = csvToObjects(csvText);
+
+      // Filter and sort (newest first by Halt Date + Halt Time strings)
+      let filtered = rows;
+      if (ONLY_LULD) filtered = filtered.filter(r => isLuldReason(r["Reason"]));
+
+      filtered = filtered.slice(0, MAX_ROWS);
+
+      tbody.innerHTML = "";
+
+      if (!filtered.length) {
+        status.innerText = `OK ${new Date().toLocaleTimeString()} | 0 rows (try ONLY_LULD=false)`;
+        return;
+      }
+
+      for (const r of filtered) {
+        const sym = (r["Symbol"] || "---").trim();
+        const haltTime = (r["Halt Time"] || "--:--").trim();
+        const resumeTime = (r["NYSE Resume Time"] || "").trim();
+
+        const tr = document.createElement("tr");
+        if (!resumeTime) tr.className = "no-resume";
+
+        tr.innerHTML = `
+          <td>${sym}</td>
+          <td>${haltTime}</td>
+          <td>${resumeTime || "PENDING"}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      status.innerText = `OK ${new Date().toLocaleTimeString()} | shown=${filtered.length} | source=nyse current/download`;
+    } catch (e) {
+      tbody.innerHTML = "";
+      status.innerText = `OFFLINE/ERROR ${new Date().toLocaleTimeString()} | ${e.message}`;
+    }
+  }
+
+  fetchHaltData();
+  setInterval(fetchHaltData, POLL_MS);
+</script>
+</body>
+</html>
