@@ -2,18 +2,52 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>NYSE HALT MONITOR</title>
+<title>NYSE HALT MONITOR (AllOrigins)</title>
 <style>
-  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; font-size:14px; font-weight:700; background:#000; color:#fff; margin:0; }
-  table { width:100%; border-collapse:collapse; table-layout:auto; letter-spacing:-0.5px; }
-  th, td { border:1px solid #333; padding:2px 6px; white-space:nowrap; overflow:hidden; }
-  th { background:#1a1a1a; color:#00ff00; text-align:left; font-size:11px; text-transform:uppercase; }
-  .no-resume { background-color:#FFD700 !important; color:#000 !important; }
-  #status { padding:6px; font-size:10px; color:#aaa; background:#080808; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    background: #000;
+    color: #fff;
+    margin: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    letter-spacing: -0.5px;
+  }
+  th, td {
+    border: 1px solid #333;
+    padding: 2px 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  th {
+    background: #1a1a1a;
+    color: #00ff00;
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+  .no-resume {
+    background-color: #FFD700 !important;
+    color: #000 !important;
+  }
+  #status {
+    padding: 6px;
+    font-size: 10px;
+    color: #aaa;
+    background: #080808;
+  }
 </style>
 </head>
+
 <body>
 <div id="status">CONNECTING...</div>
+
 <table>
   <thead>
     <tr>
@@ -26,69 +60,10 @@
 </table>
 
 <script>
-const ONLY_LULD = true;     // set false to see everything
-const POLL_MS = 15000;
+  // ======= SETTINGS =======
+  const ONLY_LULD = true;          // set false to show ALL reasons (News pending etc.)
+  const POLL_MS = 15000;           // polling interval
+  const MAX_ROWS = 200;            // safety cap
+  // ========================
 
-function isLuld(reason) {
-  const r = (reason || "").toLowerCase();
-  return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
-}
-
-async function fetchHaltData() {
-  const tbody = document.getElementById("haltBody");
-  const status = document.getElementById("status");
-
-  // NYSE "current" file (CSV) -> convert to JSON via CorsProxy
-  const targetUrl = `https://www.nyse.com/api/trade-halts/current/download?_=${Date.now()}`;
-
-  const params = new URLSearchParams();
-  params.set("url", targetUrl);
-  params.set("format", "json"); // CorsProxy converts CSV/XML/etc to JSON
-  // These header injections are optional; keep them minimal to avoid proxy-side validation issues
-  params.append("headers[]", "referer:https://www.nyse.com/trade/trading-halts");
-
-  const proxyUrl = `https://corsproxy.io/?${params.toString()}`;
-
-  try {
-    const resp = await fetch(proxyUrl, { cache: "no-store" });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-    const rows = await resp.json(); // array of objects (CSV -> JSON)
-
-    // Expect NYSE CSV headers like: Halt Date, Halt Time, Symbol, Reason, NYSE Resume Time, ...
-    let halts = Array.isArray(rows) ? rows : [];
-
-    if (ONLY_LULD) halts = halts.filter(r => isLuld(r["Reason"]));
-
-    tbody.innerHTML = "";
-
-    if (halts.length === 0) {
-      status.innerText = `OK ${new Date().toLocaleTimeString()} | 0 rows (try ONLY_LULD=false)`;
-      return;
-    }
-
-    for (const r of halts) {
-      const tr = document.createElement("tr");
-      const resumeT = (r["NYSE Resume Time"] || "").trim();
-      if (!resumeT) tr.className = "no-resume";
-
-      tr.innerHTML = `
-        <td>${(r["Symbol"] || "---").trim()}</td>
-        <td>${(r["Halt Time"] || "--:--").trim()}</td>
-        <td>${resumeT || "PENDING"}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-
-    status.innerText = `OK ${new Date().toLocaleTimeString()} | shown=${halts.length}`;
-  } catch (e) {
-    tbody.innerHTML = "";
-    status.innerText = `OFFLINE/ERROR ${new Date().toLocaleTimeString()} | ${e.message}`;
-  }
-}
-
-fetchHaltData();
-setInterval(fetchHaltData, POLL_MS);
-</script>
-</body>
-</html>
+  function isLuldReason(reaso
