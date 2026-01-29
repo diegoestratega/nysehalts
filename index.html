@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <title>NYSE HALT MONITOR</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; font-weight: 700; background:#000; color:#fff; margin:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; font-size:14px; font-weight:700; background:#000; color:#fff; margin:0; }
   table { width:100%; border-collapse:collapse; table-layout:auto; letter-spacing:-0.5px; }
   th, td { border:1px solid #333; padding:2px 6px; white-space:nowrap; overflow:hidden; }
   th { background:#1a1a1a; color:#00ff00; text-align:left; font-size:11px; text-transform:uppercase; }
@@ -20,79 +20,75 @@
       <th>Sym</th>
       <th>Halted</th>
       <th>Resume</th>
-      <th>Reason</th>
-      <th>Exch</th>
     </tr>
   </thead>
   <tbody id="haltBody"></tbody>
 </table>
 
 <script>
-  // Toggle this:
-  const ONLY_LULD = true;     // set false to show ALL halts
-  const ONLY_TODAY = false;   // set true if you want to filter by today's date (ET-ish; NYSE strings are dates)
+const ONLY_LULD = true;     // set false to see everything
+const POLL_MS = 15000;
 
-  function isLuldReason(reason) {
-    const r = (reason || "").toLowerCase();
-    return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
-  }
+function isLuld(reason) {
+  const r = (reason || "").toLowerCase();
+  return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
+}
 
-  async function fetchHaltData() {
-    const tbody = document.getElementById('haltBody');
-    const status = document.getElementById('status');
+async function fetchHaltData() {
+  const tbody = document.getElementById("haltBody");
+  const status = document.getElementById("status");
 
-    const ts = Date.now();
-    const target = `https://www.nyse.com/api/trade-halts/current?_=${ts}`;
-    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(target)}`;
+  // NYSE "current" file (CSV) -> convert to JSON via CorsProxy
+  const targetUrl = `https://www.nyse.com/api/trade-halts/current/download?_=${Date.now()}`;
 
-    try {
-      const resp = await fetch(proxyUrl, { cache: "no-store" });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const params = new URLSearchParams();
+  params.set("url", targetUrl);
+  params.set("format", "json"); // CorsProxy converts CSV/XML/etc to JSON
+  // These header injections are optional; keep them minimal to avoid proxy-side validation issues
+  params.append("headers[]", "referer:https://www.nyse.com/trade/trading-halts");
 
-      const data = await resp.json();
+  const proxyUrl = `https://corsproxy.io/?${params.toString()}`;
 
-      // NYSE current endpoint returns { totalCount, results: { lastUpdatedTime, tradeHalts: [...] } }
-      const halts = data?.results?.tradeHalts ?? [];
-      const lastUpdated = data?.results?.formatedLastUpdatedTime || data?.results?.lastUpdatedTime || "";
+  try {
+    const resp = await fetch(proxyUrl, { cache: "no-store" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-      // Optional: filter today's rows (NYSE date strings look like YYYY-MM-DD)
-      const today = new Date().toISOString().slice(0, 10);
-      let rows = halts;
+    const rows = await resp.json(); // array of objects (CSV -> JSON)
 
-      if (ONLY_TODAY) rows = rows.filter(h => (h.formatedHaltDate || "") === today);
-      if (ONLY_LULD) rows = rows.filter(h => isLuldReason(h.reason));
+    // Expect NYSE CSV headers like: Halt Date, Halt Time, Symbol, Reason, NYSE Resume Time, ...
+    let halts = Array.isArray(rows) ? rows : [];
 
-      tbody.innerHTML = "";
+    if (ONLY_LULD) halts = halts.filter(r => isLuld(r["Reason"]));
 
-      if (rows.length === 0) {
-        status.innerText = `OK ${new Date().toLocaleTimeString()} | lastUpdated=${lastUpdated} | rows=0 (try ONLY_LULD=false)`;
-        return;
-      }
+    tbody.innerHTML = "";
 
-      for (const item of rows) {
-        const tr = document.createElement('tr');
-        const resumeT = (item.formatedResumptionTime || "").trim();
-        if (!resumeT) tr.className = 'no-resume';
-
-        tr.innerHTML = `
-          <td>${item.symbol || '---'}</td>
-          <td>${item.formatedHaltTime || '--:--'}</td>
-          <td>${resumeT || 'PENDING'}</td>
-          <td>${item.reason || ''}</td>
-          <td>${item.sourceExchange || ''}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-
-      status.innerText = `OK ${new Date().toLocaleTimeString()} | lastUpdated=${lastUpdated} | shown=${rows.length} | total=${halts.length}`;
-    } catch (e) {
-      status.innerText = `OFFLINE/ERROR ${new Date().toLocaleTimeString()} | ${e.message}`;
-      tbody.innerHTML = "";
+    if (halts.length === 0) {
+      status.innerText = `OK ${new Date().toLocaleTimeString()} | 0 rows (try ONLY_LULD=false)`;
+      return;
     }
-  }
 
-  fetchHaltData();
-  setInterval(fetchHaltData, 15000); // poll instead of reloading the whole page
+    for (const r of halts) {
+      const tr = document.createElement("tr");
+      const resumeT = (r["NYSE Resume Time"] || "").trim();
+      if (!resumeT) tr.className = "no-resume";
+
+      tr.innerHTML = `
+        <td>${(r["Symbol"] || "---").trim()}</td>
+        <td>${(r["Halt Time"] || "--:--").trim()}</td>
+        <td>${resumeT || "PENDING"}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    status.innerText = `OK ${new Date().toLocaleTimeString()} | shown=${halts.length}`;
+  } catch (e) {
+    tbody.innerHTML = "";
+    status.innerText = `OFFLINE/ERROR ${new Date().toLocaleTimeString()} | ${e.message}`;
+  }
+}
+
+fetchHaltData();
+setInterval(fetchHaltData, POLL_MS);
 </script>
 </body>
 </html>
