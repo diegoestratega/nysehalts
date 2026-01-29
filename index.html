@@ -63,7 +63,8 @@
             const status = document.getElementById('status');
 
             const timestamp = new Date().getTime();
-            const url = `https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
+            const url = `https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current`;
+            //            const url = `https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
 
             try {
                 const response = await fetch(url, { cache: "no-store" });
