@@ -1,88 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NYSE HALT MONITOR</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; font-weight: 700; background:#000; color:#fff; margin:0; }
+  table { width:100%; border-collapse:collapse; table-layout:auto; letter-spacing:-0.5px; }
+  th, td { border:1px solid #333; padding:2px 6px; white-space:nowrap; overflow:hidden; }
+  th { background:#1a1a1a; color:#00ff00; text-align:left; font-size:11px; text-transform:uppercase; }
+  .no-resume { background-color:#FFD700 !important; color:#000 !important; }
+  #status { padding:6px; font-size:10px; color:#aaa; background:#080808; }
+</style>
+</head>
+<body>
+<div id="status">CONNECTING...</div>
+<table>
+  <thead>
+    <tr>
+      <th>Sym</th>
+      <th>Halted</th>
+      <th>Resume</th>
+      <th>Reason</th>
+      <th>Exch</th>
+    </tr>
+  </thead>
+  <tbody id="haltBody"></tbody>
+</table>
+
 <script>
-async function fetchHaltData() {
+  // Toggle this:
+  const ONLY_LULD = true;     // set false to show ALL halts
+  const ONLY_TODAY = false;   // set true if you want to filter by today's date (ET-ish; NYSE strings are dates)
+
+  function isLuldReason(reason) {
+    const r = (reason || "").toLowerCase();
+    return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
+  }
+
+  async function fetchHaltData() {
     const tbody = document.getElementById('haltBody');
     const status = document.getElementById('status');
-    
-    // 1. Setup URL
-    const timestamp = Date.now();
-    const targetUrl = `https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
-    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
 
-    status.innerHTML = "Requesting data...";
+    const ts = Date.now();
+    const target = `https://www.nyse.com/api/trade-halts/current?_=${ts}`;
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(target)}`;
 
     try {
-        const response = await fetch(proxyUrl);
-        const data = await response.json();
-        
-        // 2. AUTO-DETECT: Find the array containing data
-        let halts = [];
-        
-        if (Array.isArray(data)) {
-            halts = data;
-        } else {
-            // Recursive search for the first array in the object
-            const findArray = (obj) => {
-                for (let key in obj) {
-                    if (Array.isArray(obj[key]) && obj[key].length > 0) return obj[key];
-                    if (typeof obj[key] === 'object' && obj[key] !== null) {
-                        const result = findArray(obj[key]);
-                        if (result) return result;
-                    }
-                }
-                return [];
-            };
-            halts = findArray(data);
-        }
+      const resp = await fetch(proxyUrl, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-        // 3. DEBUG: Show exactly what we found
-        console.log("Found Data:", halts);
-        
-        // Handle "No Active Halts" gracefully instead of throwing error
-        if (!halts || halts.length === 0) {
-            status.innerText = "CONNECTED: No active halts reported by API.";
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#ffff00">NO ACTIVE HALTS FOUND</td></tr>';
-            return;
-        }
+      const data = await resp.json();
 
-        // 4. SMART MAPPING: Map dynamic keys to our table
-        // (Finds keys regardless of capitalization: symbol/Symbol, haltTime/HaltTime)
-        const getVal = (item, keywords) => {
-            const key = Object.keys(item).find(k => keywords.some(kw => k.toLowerCase().includes(kw)));
-            return key ? item[key] : null;
-        };
+      // NYSE current endpoint returns { totalCount, results: { lastUpdatedTime, tradeHalts: [...] } }
+      const halts = data?.results?.tradeHalts ?? [];
+      const lastUpdated = data?.results?.formatedLastUpdatedTime || data?.results?.lastUpdatedTime || "";
 
-        const luldHalts = halts.filter(item => {
-            const reason = (getVal(item, ['reason', 'message']) || "").toLowerCase();
-            return reason.includes("luld") || reason.includes("limit up");
-        });
+      // Optional: filter today's rows (NYSE date strings look like YYYY-MM-DD)
+      const today = new Date().toISOString().slice(0, 10);
+      let rows = halts;
 
-        status.innerText = `UPDATED: ${new Date().toLocaleTimeString()} | TOTAL: ${halts.length} | LULD: ${luldHalts.length}`;
-        tbody.innerHTML = '';
+      if (ONLY_TODAY) rows = rows.filter(h => (h.formatedHaltDate || "") === today);
+      if (ONLY_LULD) rows = rows.filter(h => isLuldReason(h.reason));
 
-        if (luldHalts.length === 0) {
-             tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#666">NO ACTIVE LULD HALTS</td></tr>';
-             return;
-        }
+      tbody.innerHTML = "";
 
-        luldHalts.forEach(item => {
-            const tr = document.createElement('tr');
-            const sym = getVal(item, ['symbol', 'sym']) || "---";
-            const time = getVal(item, ['halttime', 'time']) || "--:--";
-            const resume = getVal(item, ['resumetime', 'resume']) || "PENDING";
-            const reason = getVal(item, ['reason', 'message']) || "";
+      if (rows.length === 0) {
+        status.innerText = `OK ${new Date().toLocaleTimeString()} | lastUpdated=${lastUpdated} | rows=0 (try ONLY_LULD=false)`;
+        return;
+      }
 
-            tr.innerHTML = `<td>${sym}</td><td>${time}</td><td>${resume}</td><td>${reason}</td>`;
-            tbody.appendChild(tr);
-        });
+      for (const item of rows) {
+        const tr = document.createElement('tr');
+        const resumeT = (item.formatedResumptionTime || "").trim();
+        if (!resumeT) tr.className = 'no-resume';
 
-    } catch (error) {
-        console.error(error);
-        status.innerHTML = `<span style="color:red">ERROR: ${error.message}</span>`;
-        // Print the raw JSON to console so you can inspect it
-        console.log("Inspect this object to see structure:", error);
+        tr.innerHTML = `
+          <td>${item.symbol || '---'}</td>
+          <td>${item.formatedHaltTime || '--:--'}</td>
+          <td>${resumeT || 'PENDING'}</td>
+          <td>${item.reason || ''}</td>
+          <td>${item.sourceExchange || ''}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      status.innerText = `OK ${new Date().toLocaleTimeString()} | lastUpdated=${lastUpdated} | shown=${rows.length} | total=${halts.length}`;
+    } catch (e) {
+      status.innerText = `OFFLINE/ERROR ${new Date().toLocaleTimeString()} | ${e.message}`;
+      tbody.innerHTML = "";
     }
-}
+  }
 
-fetchHaltData();
-setInterval(fetchHaltData, 60000);
+  fetchHaltData();
+  setInterval(fetchHaltData, 15000); // poll instead of reloading the whole page
 </script>
+</body>
+</html>
