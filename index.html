@@ -1,189 +1,111 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>NYSE HALT MONITOR (AllOrigins)</title>
-<style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-    font-size: 14px;
-    font-weight: 700;
-    background: #000;
-    color: #fff;
-    margin: 0;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: auto;
-    letter-spacing: -0.5px;
-  }
-  th, td {
-    border: 1px solid #333;
-    padding: 2px 6px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  th {
-    background: #1a1a1a;
-    color: #00ff00;
-    text-align: left;
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-  .no-resume {
-    background-color: #FFD700 !important;
-    color: #000 !important;
-  }
-  #status {
-    padding: 6px;
-    font-size: 10px;
-    color: #aaa;
-    background: #080808;
-  }
-</style>
-</head>
-
-<body>
-<div id="status">CONNECTING...</div>
-
-<table>
-  <thead>
-    <tr>
-      <th>Sym</th>
-      <th>Halted</th>
-      <th>Resume</th>
-    </tr>
-  </thead>
-  <tbody id="haltBody"></tbody>
-</table>
-
-<script>
-  // ======= SETTINGS =======
-  const ONLY_LULD = true;          // set false to show ALL reasons (News pending etc.)
-  const POLL_MS = 15000;           // polling interval
-  const MAX_ROWS = 200;            // safety cap
-  // ========================
-
-  function isLuldReason(reason) {
-    const r = (reason || "").toLowerCase();
-    return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
-  }
-
-  // Robust CSV line parser (handles quoted commas)
-  function parseCsvLine(line) {
-    const out = [];
-    let cur = "";
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-
-      if (ch === '"') {
-        // Handle escaped quote ("")
-        if (inQuotes && line[i + 1] === '"') {
-          cur += '"';
-          i++;
-        } else {
-          inQuotes = !inQuotes;
+    <meta charset="UTF-8">
+    <meta http-equiv="refresh" content="61">
+    <title>NYSE HALT MONITOR</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 14px;
+            font-weight: 700;
+            background: #000;
+            color: #fff;
+            margin: 0;
         }
-        continue;
-      }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: auto;
+            letter-spacing: -0.5px;
+        }
+        th, td {
+            border: 1px solid #333;
+            padding: 2px 6px;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        th {
+            background: #1a1a1a;
+            color: #00ff00;
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .no-resume {
+            background-color: #FFD700 !important;
+            color: #000 !important;
+        }
+        #status {
+            padding: 6px;
+            font-size: 10px;
+            color: #666;
+            background: #080808;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">CONNECTING...</div>
+    <table id="haltTable">
+        <thead>
+            <tr>
+                <th>Sym</th>
+                <th>Halted</th>
+                <th>Resume</th>
+            </tr>
+        </thead>
+        <tbody id="haltBody"></tbody>
+    </table>
 
-      if (ch === ',' && !inQuotes) {
-        out.push(cur);
-        cur = "";
-        continue;
-      }
+    <script>
+        async function fetchHaltData() {
+            const tbody = document.getElementById('haltBody');
+            const status = document.getElementById('status');
 
-      cur += ch;
-    }
-    out.push(cur);
-    return out.map(s => s.trim());
-  }
+            const timestamp = new Date().getTime();
+            const url = `https://corsproxy.io/?https://www.nyse.com/api/trade-halts/current?_=${timestamp}`;
 
-  function csvToObjects(csvText) {
-    const text = (csvText || "").trim();
-    if (!text) return [];
+            try {
+                const response = await fetch(url, { cache: "no-store" });
+                const data = await response.json();
+                const halts = data.results && data.results.tradeHalts ? data.results.tradeHalts : [];
 
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    if (lines.length < 2) return [];
+                // Seasoned-filter: keep only LULD-related reasons, do not display the reason column
+                const luldHalts = halts.filter(h => {
+                    const r = (h.reason || "").toLowerCase();
+                    return r.includes("luld") || r.includes("limit up") || r.includes("limit down");
+                });
 
-    const headers = parseCsvLine(lines[0]);
-    const rows = [];
+                if (luldHalts.length === 0) {
+                    tbody.innerHTML = '';
+                    status.innerText = "NO ACTIVE LULD PAUSES - " + new Date().toLocaleTimeString();
+                    return;
+                }
 
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCsvLine(lines[i]);
-      const obj = {};
-      for (let j = 0; j < headers.length; j++) {
-        obj[headers[j]] = cols[j] ?? "";
-      }
-      rows.push(obj);
-    }
-    return rows;
-  }
+                tbody.innerHTML = '';
+                luldHalts.forEach(item => {
+                    const tr = document.createElement('tr');
+                    const resumeT = item.formatedResumptionTime ? item.formatedResumptionTime.trim() : '';
 
-  async function fetchHaltData() {
-    const tbody = document.getElementById("haltBody");
-    const status = document.getElementById("status");
+                    if (!resumeT || resumeT === "" || resumeT === "null") {
+                        tr.className = 'no-resume';
+                    }
 
-    // NYSE halts CSV
-    const nyseCsvUrl = `https://www.nyse.com/api/trade-halts/current/download?_=${Date.now()}`;
+                    tr.innerHTML = `
+                        <td>${item.symbol || '---'}</td>
+                        <td>${item.formatedHaltTime || '--:--'}</td>
+                        <td>${resumeT}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
 
-    // AllOrigins: returns JSON { contents: "..." } [page:0]
-    const allOriginsUrl =
-      `https://api.allorigins.win/get?url=${encodeURIComponent(nyseCsvUrl)}`;
+                status.innerText = `LAST SYNC: ${new Date().toLocaleTimeString()} | LULD: ${luldHalts.length}`;
+            } catch (error) {
+                status.innerText = "OFFLINE - RETRYING";
+            }
+        }
 
-    try {
-      status.innerText = "FETCHING...";
-
-      const resp = await fetch(allOriginsUrl, { cache: "no-store" });
-      if (!resp.ok) throw new Error(`AllOrigins HTTP ${resp.status}`);
-
-      const wrapper = await resp.json();
-      const csvText = wrapper && typeof wrapper.contents === "string" ? wrapper.contents : "";
-
-      const rows = csvToObjects(csvText);
-
-      // Filter and sort (newest first by Halt Date + Halt Time strings)
-      let filtered = rows;
-      if (ONLY_LULD) filtered = filtered.filter(r => isLuldReason(r["Reason"]));
-
-      filtered = filtered.slice(0, MAX_ROWS);
-
-      tbody.innerHTML = "";
-
-      if (!filtered.length) {
-        status.innerText = `OK ${new Date().toLocaleTimeString()} | 0 rows (try ONLY_LULD=false)`;
-        return;
-      }
-
-      for (const r of filtered) {
-        const sym = (r["Symbol"] || "---").trim();
-        const haltTime = (r["Halt Time"] || "--:--").trim();
-        const resumeTime = (r["NYSE Resume Time"] || "").trim();
-
-        const tr = document.createElement("tr");
-        if (!resumeTime) tr.className = "no-resume";
-
-        tr.innerHTML = `
-          <td>${sym}</td>
-          <td>${haltTime}</td>
-          <td>${resumeTime || "PENDING"}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-
-      status.innerText = `OK ${new Date().toLocaleTimeString()} | shown=${filtered.length} | source=nyse current/download`;
-    } catch (e) {
-      tbody.innerHTML = "";
-      status.innerText = `OFFLINE/ERROR ${new Date().toLocaleTimeString()} | ${e.message}`;
-    }
-  }
-
-  fetchHaltData();
-  setInterval(fetchHaltData, POLL_MS);
-</script>
+        fetchHaltData();
+    </script>
 </body>
 </html>
